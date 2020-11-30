@@ -1,0 +1,6 @@
+[Core]
+Name = SlackSDK
+Module = slack_sdk
+
+[Documentation]
+Description = Backend for Slack's Real Time Messaging and Events APIs.

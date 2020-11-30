@@ -21,7 +21,7 @@ from errbot.rendering.ansiext import AnsiExtension, enable_format, IMTEXT_CHRS
 log = logging.getLogger(__name__)
 
 try:
-    from slackclient import SlackClient
+    from slackclient import WebClient
 except ImportError:
     log.exception("Could not start the Slack back-end")
     log.fatal(
@@ -157,7 +157,7 @@ class SlackPerson(Person):
         """Convert a Slack user ID to their user email"""
         user = self._sc.server.users.find(self._userid)
         if user is None:
-            log.error("Cannot find user with ID %s", self._userid)
+            log.error("Cannot find user with ID %s" % self._userid)
             return "<%s>" % self._userid
         return user.email
 
@@ -373,7 +373,7 @@ class SlackBackend(ErrBot):
         log.debug('Converted bot_alt_prefixes: %s', self.bot_config.BOT_ALT_PREFIXES)
 
     def serve_once(self):
-        self.sc = SlackClient(self.token, proxies=self.proxies)
+        self.sc = WebClient(self.token, proxies=self.proxies)
 
         log.info('Verifying authentication token')
         self.auth = self.api_call("auth.test", raise_errors=False)

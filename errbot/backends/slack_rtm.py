@@ -132,6 +132,7 @@ class SlackPerson(Person):
             return self._username
 
         user = self._webclient.users_info(user=self._userid)['user']
+
         if user is None:
             log.error('Cannot find user with ID %s', self._userid)
             return f'<{self._userid}>'
@@ -153,7 +154,10 @@ class SlackPerson(Person):
         if self._channelname:
             return self._channelname
 
-        channel = [channel for channel in self._webclient.channels_list() if channel['id'] == self._channelid][0]
+        channel = [
+            channel for channel in self._webclient.conversations_list()['channels']
+            if channel['id'] == self._channelid
+        ][0]
         if channel is None:
             raise RoomDoesNotExistError(f'No channel with ID {self._channelid} exists.')
         if not self._channelname:
@@ -301,7 +305,7 @@ class SlackRoomBot(RoomOccupant, SlackBot):
         return other.room.id == self.room.id and other.userid == self.userid
 
 
-class SlackRTMBackend(ErrBot):
+class SlackBackendBase():
 
     @staticmethod
     def _unpickle_identifier(identifier_str):
@@ -322,25 +326,6 @@ class SlackRTMBackend(ErrBot):
         SlackRTMBackend.__build_identifier = self.build_identifier
         for cls in (SlackPerson, SlackRoomOccupant, SlackRoom):
             copyreg.pickle(cls, SlackRTMBackend._pickle_identifier, SlackRTMBackend._unpickle_identifier)
-
-    def __init__(self, config):
-        super().__init__(config)
-        identity = config.BOT_IDENTITY
-        self.token = identity.get('token', None)
-        self.proxies = identity.get('proxies', None)
-        if not self.token:
-            log.fatal(
-                'You need to set your token (found under "Bot Integration" on Slack) in '
-                'the BOT_IDENTITY setting in your configuration. Without this token I '
-                'cannot connect to Slack.'
-            )
-            sys.exit(1)
-        self.sc = None  # Will be initialized in serve_once
-        self.webclient = None
-        self.bot_identifier = None
-        compact = config.COMPACT_OUTPUT if hasattr(config, 'COMPACT_OUTPUT') else False
-        self.md = slack_markdown_converter(compact)
-        self._register_identifiers_pickling()
 
     def update_alternate_prefixes(self):
         """Converts BOT_ALT_PREFIXES to use the slack ID instead of name
@@ -418,6 +403,16 @@ class SlackRTMBackend(ErrBot):
         self.webclient = webclient
         self.connect_callback()
         self.callback_presence(Presence(identifier=self.bot_identifier, status=ONLINE))
+
+    def _reaction_added_event_handler(self, webclient: WebClient, event):
+        """Event handler for the 'reaction_added' event"""
+        emoji = event["reaction"]
+        log.debug('Added reaction: {}'.format(emoji))
+
+    def _reaction_removed_event_handler(self, webclient: WebClient, event):
+        """Event handler for the 'reaction_removed' event"""
+        emoji = event["reaction"]
+        log.debug('Removed reaction: {}'.format(emoji))
 
     def _presence_change_event_handler(self, webclient: WebClient, event):
         """Event handler for the 'presence_change' event"""
@@ -553,10 +548,10 @@ class SlackRTMBackend(ErrBot):
     def channelname_to_channelid(self, name: str):
         """Convert a Slack channel name to its channel ID"""
         name = name.lstrip('#')
-        channel = [channel for channel in self.webclient.channels_list() if channel.name == name]
+        channel = [channel for channel in self.webclient.conversations_list()['channels'] if channel['name'] == name]
         if not channel:
             raise RoomDoesNotExistError(f'No channel named {name} exists')
-        return channel[0].id
+        return channel[0]['id']
 
     def channels(self, exclude_archived=True, joined_only=False):
         """
@@ -574,7 +569,7 @@ class SlackRTMBackend(ErrBot):
           * https://api.slack.com/methods/channels.list
           * https://api.slack.com/methods/groups.list
         """
-        response = self.webclient.channels_list(exclude_archived=exclude_archived)
+        response = self.webclient.conversations_list(exclude_archived=exclude_archived)
         channels = [channel for channel in response['channels']
                     if channel['is_member'] or not joined_only]
 
@@ -590,7 +585,7 @@ class SlackRTMBackend(ErrBot):
     def get_im_channel(self, id_):
         """Open a direct message channel to a user"""
         try:
-            response = self.webclient.im_open(user=id_)
+            response = self.webclient.conversations_open(user=id_)
             return response['channel']['id']
         except SlackAPIResponseError as e:
             if e.error == "cannot_dm_bot":
@@ -1022,6 +1017,28 @@ class SlackRTMBackend(ErrBot):
         return text, mentioned
 
 
+class SlackRTMBackend(SlackBackendBase, ErrBot):
+
+    def __init__(self, config):
+        super().__init__(config)
+        identity = config.BOT_IDENTITY
+        self.token = identity.get('token', None)
+        self.proxies = identity.get('proxies', None)
+        if not self.token:
+            log.fatal(
+                'You need to set your token (found under "Bot Integration" on Slack) in '
+                'the BOT_IDENTITY setting in your configuration. Without this token I '
+                'cannot connect to Slack.'
+            )
+            sys.exit(1)
+        self.sc = None  # Will be initialized in serve_once
+        self.webclient = None
+        self.bot_identifier = None
+        compact = config.COMPACT_OUTPUT if hasattr(config, 'COMPACT_OUTPUT') else False
+        self.md = slack_markdown_converter(compact)
+        self._register_identifiers_pickling()
+
+
 class SlackRoom(Room):
     def __init__(self, webclient=None, name=None, channelid=None, bot=None):
         if channelid is not None and name is not None:
@@ -1035,7 +1052,7 @@ class SlackRoom(Room):
         else:
             self._name = bot.channelid_to_channelname(channelid)
 
-        self._id = None
+        self._id = channelid
         self._bot = bot
         self.webclient = webclient
 
@@ -1052,12 +1069,22 @@ class SlackRoom(Room):
         The channel object exposed by SlackClient
         """
         _id = None
-        for channel in self.webclient.conversations_list()['channels']:
-            if channel['name'] == self.name:
-                _id = channel['id']
-                break
-        else:
-            raise RoomDoesNotExistError(f"{str(self)} does not exist (or is a private group you don't have access to)")
+        # Cursors
+        cursor = ''
+        while cursor is not None:
+            conversations_list = self.webclient.conversations_list(cursor=cursor)
+            cursor = None
+            for channel in conversations_list['channels']:
+                if channel['name'] == self.name:
+                    _id = channel['id']
+                    break
+            else:
+                if conversations_list['response_metadata']['next_cursor'] is not None:
+                    cursor = conversations_list['response_metadata']['next_cursor']
+                else:
+                    raise RoomDoesNotExistError(
+                        f"{str(self)} does not exist (or is a private group you don't have access to)"
+                    )
         return _id
 
     @property

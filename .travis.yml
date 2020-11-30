@@ -1,0 +1,31 @@
+sudo: false
+language: python
+matrix:
+  include:
+    - python: 3.6
+      env: TOXENV=py36
+    - python: 3.7
+      env: TOXENV=py37
+    - python: 3.8
+      env: TOXENV=py38
+    - python: 3.9
+      env: TOXENV=py39
+    - python: 3.7
+      env: TOXENV=pypi-lint
+    - python: 3.7
+      env: TOXENV=codestyle
+    - python: 3.7
+      env: TOXENV=security
+
+install: pip install tox
+before_script: cp tests/config-travisci.py config.py
+script: tox
+
+# notification for gitter integration
+notifications:
+  webhooks:
+    urls:
+      - https://webhooks.gitter.im/e/788e94bb42a75aa2df4c
+    on_success: always  # options: [always|never|change] default: always
+    on_failure: always  # options: [always|never|change] default: always
+    on_start: true     # default: false
