@@ -93,7 +93,7 @@ def check_dependencies(req_path: Path) -> Tuple[Optional[str], Sequence[str]]:
     log.debug("check dependencies of %s", req_path)
     # noinspection PyBroadException
     try:
-        from pkg_resources import get_distribution
+        from importlib.metadata import distribution
 
         missing_pkg = []
 
@@ -110,7 +110,7 @@ def check_dependencies(req_path: Path) -> Tuple[Optional[str], Sequence[str]]:
 
                 # noinspection PyBroadException
                 try:
-                    get_distribution(stripped)
+                    distribution(stripped)
                 except Exception:
                     missing_pkg.append(stripped)
         if missing_pkg:
