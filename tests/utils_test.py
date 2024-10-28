@@ -1,7 +1,6 @@
 # coding=utf-8
 import logging
 import sys
-
 from datetime import timedelta
 
 import pytest
@@ -11,7 +10,12 @@ from errbot.backends.test import ShallowConfig
 from errbot.bootstrap import CORE_STORAGE, bot_config_defaults
 from errbot.storage import StoreMixin
 from errbot.storage.base import StoragePluginBase
-from errbot.utils import version2tuple, format_timedelta, split_string_after
+from errbot.utils import (
+    entry_point_plugins,
+    format_timedelta,
+    split_string_after,
+    version2tuple,
+)
 
 log = logging.getLogger(__name__)
 
@@ -103,3 +107,17 @@ def test_split_string_after_returns_two_chunks_when_chunksize_equals_half_length
     splitter = split_string_after(str_, int(len(str_) / 2))
     split = [chunk for chunk in splitter]
     assert ["foobar2000", "foobar2000"] == split
+
+
+def test_entry_point_plugins_no_groups():
+    result = entry_point_plugins("does_not_exist")
+    assert [] == result
+
+
+def test_entry_point_plugins_valid_groups():
+    results = entry_point_plugins("console_scripts")
+    match = False
+    for result in results:
+        if result.endswith("errbot/errbot.cli"):
+            match = True
+    assert match

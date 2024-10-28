@@ -6,6 +6,7 @@ import shutil
 import tarfile
 from collections import namedtuple
 from datetime import datetime, timedelta
+from importlib.metadata import distribution
 from os import path
 from pathlib import Path
 from typing import Dict, Generator, List, Optional, Sequence, Tuple
@@ -91,40 +92,30 @@ def check_dependencies(req_path: Path) -> Tuple[Optional[str], Sequence[str]]:
     Or None, [] if everything is OK.
     """
     log.debug("check dependencies of %s", req_path)
-    # noinspection PyBroadException
-    try:
-        from pkg_resources import get_distribution
+    missing_pkg = []
 
-        missing_pkg = []
-
-        if not req_path.is_file():
-            log.debug("%s has no requirements.txt file", req_path)
-            return None, missing_pkg
-
-        with req_path.open() as f:
-            for line in f:
-                stripped = line.strip()
-                # skip empty lines.
-                if not stripped:
-                    continue
-
-                # noinspection PyBroadException
-                try:
-                    get_distribution(stripped)
-                except Exception:
-                    missing_pkg.append(stripped)
-        if missing_pkg:
-            return (
-                f"You need these dependencies for {req_path}: " + ",".join(missing_pkg),
-                missing_pkg,
-            )
+    if not req_path.is_file():
+        log.debug("%s has no requirements.txt file", req_path)
         return None, missing_pkg
-    except Exception:
-        log.exception("Problem checking for dependencies.")
+
+    with req_path.open() as f:
+        for line in f:
+            stripped = line.strip()
+            # skip empty lines.
+            if not stripped:
+                continue
+
+            # noinspection PyBroadException
+            try:
+                distribution(stripped)
+            except Exception:
+                missing_pkg.append(stripped)
+    if missing_pkg:
         return (
-            "You need to have setuptools installed for the dependency check of the plugins",
-            [],
+            f"You need these dependencies for {req_path}: " + ",".join(missing_pkg),
+            missing_pkg,
         )
+    return None, missing_pkg
 
 
 class BotRepoManager(StoreMixin):

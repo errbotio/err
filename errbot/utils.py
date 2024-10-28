@@ -1,8 +1,10 @@
 import collections
 import fnmatch
+import importlib.metadata
 import inspect
 import logging
 import os
+import pathlib
 import re
 import sys
 import time
@@ -10,7 +12,6 @@ from functools import wraps
 from platform import system
 from typing import List, Tuple, Union
 
-import pkg_resources
 from dulwich import porcelain
 
 log = logging.getLogger(__name__)
@@ -199,9 +200,31 @@ def collect_roots(base_paths: List, file_sig: str = "*.plug") -> List:
 
 def entry_point_plugins(group):
     paths = []
-    for entry_point in pkg_resources.iter_entry_points(group):
-        ep = next(pkg_resources.iter_entry_points(group, entry_point.name))
-        paths.append(f"{ep.dist.module_path}/{entry_point.module_name}")
+
+    eps = importlib.metadata.entry_points()
+    try:
+        entry_points = eps.select(group=group)
+    except AttributeError:
+        # workaround to support python 3.9 and older
+        entry_points = eps.get(group, ())
+
+    for entry_point in entry_points:
+        module_name = entry_point.module
+        file_name = module_name.replace(".", "/") + ".py"
+        try:
+            files = entry_point.dist.files
+        except AttributeError:
+            # workaround to support python 3.9 and older
+            try:
+                files = importlib.metadata.distribution(entry_point.name).files
+            except importlib.metadata.PackageNotFoundError:
+                # entrypoint is not a distribution, so let's skip looking for files
+                continue
+
+        for f in files:
+            if file_name == str(f):
+                parent = str(pathlib.Path(f).resolve().parent)
+                paths.append(f"{parent}/{module_name}")
     return paths
 
 
