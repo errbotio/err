@@ -202,7 +202,13 @@ def entry_point_plugins(group):
     paths = []
 
     eps = importlib.metadata.entry_points()
-    for entry_point in eps.select(group=group):
+    try:
+        entry_points = eps.select(group=group)
+    except AttributeError:
+        # workaround to support python 3.9 and older
+        entry_points = eps.get(group, ())
+
+    for entry_point in entry_points:
         module_name = entry_point.module
         file_name = module_name.replace(".", "/") + ".py"
         for f in entry_point.dist.files:
