@@ -211,7 +211,17 @@ def entry_point_plugins(group):
     for entry_point in entry_points:
         module_name = entry_point.module
         file_name = module_name.replace(".", "/") + ".py"
-        for f in entry_point.dist.files:
+        try:
+            files = entry_point.dist.files
+        except AttributeError:
+            # workaround to support python 3.9 and older
+            try:
+                files = importlib.metadata.distribution(entry_point.name).files
+            except importlib.metadata.PackageNotFoundError:
+                # entrypoint is not a distribution, so let's skip looking for files
+                continue
+
+        for f in files:
             if file_name == str(f):
                 parent = str(pathlib.Path(f).resolve().parent)
                 paths.append(f"{parent}/{module_name}")
