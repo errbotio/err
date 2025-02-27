@@ -15,6 +15,8 @@ fixes:
 - chore: use ruff for formatting (#1706)
 - chore: bump setuptools to 75.7.0 (#1709)
 - chore: bump pyOpenSSL to 24.3.0 (#1710)
+- Fix: situationally broken apropos command (#1711)
+
 
 v6.2.0 (2024-01-01)
 -------------------
